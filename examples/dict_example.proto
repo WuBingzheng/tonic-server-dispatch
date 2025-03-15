@@ -1,0 +1,23 @@
+syntax = "proto3";
+package dict_example;
+
+service DictService {
+    rpc Set (SetRequest) returns (SetReply);
+    rpc Get (Key) returns (Value);
+    rpc Delete (Key) returns (Value);
+}
+
+message Key {
+    string key = 1;
+}
+message Value {
+    double value = 1;
+}
+message SetRequest {
+    string key = 1;
+    double value = 2;
+}
+message SetReply {
+    string act = 1;
+    optional double old_value = 2;
+}
