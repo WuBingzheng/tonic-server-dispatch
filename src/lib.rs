@@ -104,7 +104,7 @@
 //! Go [DictService] for the full source code.
 //!
 //! [This tokio tutorial]: https://tokio.rs/tokio/tutorial/channels
-//! [DictService]: https://github.com/WuBingzheng/tonic-server-dispatch/blob/master/src/examples/src/server.rs
+//! [DictService]: https://github.com/WuBingzheng/tonic-server-dispatch/blob/master/examples/src/server.rs
 //! [doc page]: macro.dispatch_service.html
 
 
@@ -148,7 +148,7 @@
 ///
 /// Read the [DictService] example's source code for a better understanding.
 ///
-/// [DictService]: https://github.com/WuBingzheng/tonic-server-dispatch/blob/master/src/examples/src/server.rs
+/// [DictService]: https://github.com/WuBingzheng/tonic-server-dispatch/blob/master/examples/src/server.rs
 ///
 #[macro_export]
 macro_rules! dispatch_service {
