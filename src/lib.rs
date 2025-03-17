@@ -45,7 +45,7 @@
 //!
 //! # Usage
 //!
-//! Let's take the [DictService] in async-mode as example. The sync-mode
+//! Let's take the [DictService in async-mode] as example. The [sync-mode]
 //! is similar.
 //!
 //! We assume that you are familiar with how to implement the original
@@ -139,10 +139,11 @@
 //!    as your reference.
 //!
 //! Now we have finished the dispatch level. It is very simple, isn't it?
-//! Go [DictService] for the full source code.
+//! Go [DictService in async-mode] and [sync-mode] for the full source code.
 //!
 //! [tokio tutorial]: https://tokio.rs/tokio/tutorial/channels
-//! [DictService]: https://github.com/WuBingzheng/tonic-server-dispatch/blob/master/examples/src/server.rs
+//! [DictService in async-mode]: https://github.com/WuBingzheng/tonic-server-dispatch/blob/master/examples/src/server_async.rs
+//! [sync-mode]: https://github.com/WuBingzheng/tonic-server-dispatch/blob/master/examples/src/server_sync.rs
 //! [doc page]: macro.dispatch_service.html
 
 

@@ -38,7 +38,7 @@
 ///
 /// Read the [DictService] example's source code for a better understanding.
 ///
-/// [DictService]: https://github.com/WuBingzheng/tonic-server-dispatch/blob/master/examples/src/server.rs
+/// [DictService]: https://github.com/WuBingzheng/tonic-server-dispatch/blob/master/examples/src/server_async.rs
 ///
 #[macro_export]
 macro_rules! dispatch_service_async {
