@@ -1,5 +1,4 @@
 use tonic::{transport::Server, Status};
-use tonic_server_dispatch::dispatch_service;
 use std::collections::HashMap;
 
 mod dict_example {
@@ -10,7 +9,7 @@ use dict_example::*;
 use dict_service_server::{DictService, DictServiceServer};
 
 // STEP 1: Define the Service
-dispatch_service! {
+tonic_server_dispatch::dispatch_service_async! {
     DictService, // original service name
     key, // hash by this request field
 
@@ -31,11 +30,9 @@ impl DispatchBackend for DictCtx {
     async fn set(&mut self, req: SetRequest) -> Result<SetReply, Status> {
         match self.0.insert(req.key, req.value) {
             Some(old_value) => Ok(SetReply {
-                act: String::from("replace"),
                 old_value: Some(old_value),
             }),
             None => Ok(SetReply {
-                act: String::from("create"),
                 old_value: None,
             }),
         }

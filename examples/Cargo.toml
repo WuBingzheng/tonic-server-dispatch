@@ -4,8 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "server"
-path = "src/server.rs"
+name = "server-async"
+path = "src/server_async.rs"
+
+[[bin]]
+name = "server-sync"
+path = "src/server_sync.rs"
 
 [[bin]]
 name = "client"
