@@ -22,7 +22,7 @@ tonic_server_dispatch::dispatch_service_sync! {
 // STEP 2: Implement the Service
 
 // define your business context
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct DictCtx (HashMap<String, f64>);
 
 // implement DispatchBackend for your context
@@ -60,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The requests are dispatched from network tasks to backend
     // tasks by the channels, and the response are sent back by
     // oneshot channels.
-    let svc = start_simple_dispatch_backend::<DictCtx>(16, 10);
+    let svc = start_simple_dispatch_backend(DictCtx::default(), 16, 10);
 
     let addr = "127.0.0.1:50051".parse()?;
     Server::builder()

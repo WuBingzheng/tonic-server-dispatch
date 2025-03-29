@@ -155,16 +155,15 @@ macro_rules! dispatch_service_async {
         // You need to write your own code if any more feature, for example
         // the backend task need to listen on another channel.
         #[allow(dead_code)]
-        fn start_simple_dispatch_backend<B>(task_num: usize, channel_capacity: usize)
+        fn start_simple_dispatch_backend<B>(backend: B, task_num: usize, channel_capacity: usize)
             -> [<$service DispatchServer>]
-            where B: Default + DispatchBackend + Send + Sync + 'static
+            where B: Clone + DispatchBackend + Send + Sync + 'static
         {
-            async fn backend_task<B>(mut req_rx: tokio::sync::mpsc::Receiver<DispatchRequest>)
-                where B: Default + DispatchBackend + Send + Sync + 'static
+            async fn backend_task<B>(mut backend: B, mut req_rx: tokio::sync::mpsc::Receiver<DispatchRequest>)
+                where B: DispatchBackend + Send + Sync + 'static
             {
-                let mut ctx = B::default();
                 while let Some(request) = req_rx.recv().await {
-                    request.handle_and_reply(&mut ctx).await;
+                    request.handle_and_reply(&mut backend).await;
                 }
             }
 
@@ -172,7 +171,7 @@ macro_rules! dispatch_service_async {
             for _ in 0..task_num {
                 let (req_tx, req_rx) = tokio::sync::mpsc::channel(channel_capacity);
 
-                tokio::spawn(backend_task::<B>(req_rx));
+                tokio::spawn(backend_task(backend.clone(), req_rx));
 
                 req_txs.push(req_tx);
             }
