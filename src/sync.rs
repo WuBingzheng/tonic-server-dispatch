@@ -128,11 +128,14 @@ macro_rules! dispatch_service_sync {
             }
 
             let mut req_txs = Vec::new();
-            for _ in 0..task_num {
+            for i in 0..task_num {
                 let (req_tx, req_rx) = std::sync::mpsc::sync_channel(channel_capacity);
 
                 let backend = backend.clone();
-                std::thread::spawn(|| backend_task::<B>(backend, req_rx));
+                std::thread::Builder::new()
+                    .name(format!("biz-worker-{i}"))
+                    .spawn(|| backend_task::<B>(backend, req_rx))
+                    .unwrap();
 
                 req_txs.push(req_tx);
             }
