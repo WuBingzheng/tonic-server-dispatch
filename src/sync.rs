@@ -1,12 +1,43 @@
+#[macro_export]
+macro_rules! service_method_body {
+    ($method:ident, $self:ident, $request:expr, $hash_by:ident) => {
+        paste::paste! {
+            {
+                let request = $request.into_inner();
+
+                let shard = Self::calc_hash(&request.$hash_by) as usize % $self.txs.len();
+
+                let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+
+                let biz_req = DispatchRequest::[<$method:camel>](request, resp_tx);
+
+                match $self.txs[shard].try_send(biz_req) {
+                    Ok(()) => resp_rx.await.unwrap().map(tonic::Response::new),
+                    Err(_) => Err(tonic::Status::unavailable(String::new())),
+                }
+            }
+        }
+    }
+}
+
 /// Similar to the `dispatch_service_async` but in sync mode.
 #[macro_export]
 macro_rules! dispatch_service_sync {
     (
         $service:ty,
-        $hash_by:ident,
-        $(
-            $method:ident ($request:ty) -> $reply:ty,
-        )*
+        $hash_by:ident : $hash_type:ty,
+
+        [ $(
+            $shard_method:ident ($shard_request:ty) -> $shard_reply:ty,
+        )* ],
+
+        [ $(
+            $mutable_method:ident ($mutable_request:ty) -> $mutable_reply:ty,
+        )* ],
+
+        [ $(
+            $readonly_method:ident ($readonly_request:ty) -> $readonly_reply:ty,
+        )* ]
     ) => {
 
         paste::paste! {
@@ -33,10 +64,24 @@ macro_rules! dispatch_service_sync {
         //     }
         // }
         // ```
-        trait DispatchBackend {
+        trait DispatchBackendShard {
+            type Item: DispatchBackendItem;
+            fn get(&self, key: &$hash_type) -> Result<&Self::Item, Status>;
+            fn get_mut(&mut self, key: &$hash_type) -> Result<&mut Self::Item, Status>;
+
             $(
-                fn $method(&mut self, request: $request)
-                -> Result<$reply, tonic::Status>;
+                fn $shard_method(&mut self, request: $shard_request)
+                -> Result<$shard_reply, tonic::Status>;
+            )*
+        }
+        trait DispatchBackendItem {
+            $(
+                fn $mutable_method(&mut self, request: $mutable_request)
+                -> Result<$mutable_reply, tonic::Status>;
+            )*
+            $(
+                fn $readonly_method(&self, request: $readonly_request)
+                -> Result<$readonly_reply, tonic::Status>;
             )*
         }
 
@@ -45,18 +90,42 @@ macro_rules! dispatch_service_sync {
         // This is an internal type. You would not need to know this.
         enum DispatchRequest {
             $(
-                [<$method:camel>] ($request, tokio::sync::oneshot::Sender<Result<$reply, tonic::Status>>),
+                [<$shard_method:camel>] ($shard_request, tokio::sync::oneshot::Sender<Result<$shard_reply, tonic::Status>>),
+            )*
+            $(
+                [<$mutable_method:camel>] ($mutable_request, tokio::sync::oneshot::Sender<Result<$mutable_reply, tonic::Status>>),
+            )*
+            $(
+                [<$readonly_method:camel>] ($readonly_request, tokio::sync::oneshot::Sender<Result<$readonly_reply, tonic::Status>>),
             )*
         }
 
         impl DispatchRequest {
             fn handle_and_reply<B>(self, ctx: &mut B)
-                where B: DispatchBackend + Send + Sync + 'static
+                where B: DispatchBackendShard + Send + Sync + 'static
             {
                 match self {
                     $(
-                        DispatchRequest::[<$method:camel>](req, resp_tx) => {
-                            let reply = ctx.$method(req);
+                        DispatchRequest::[<$shard_method:camel>](req, resp_tx) => {
+                            let reply = ctx.$shard_method(req);
+                            resp_tx.send(reply).unwrap();
+                        }
+                    )*
+                    $(
+                        DispatchRequest::[<$mutable_method:camel>](req, resp_tx) => {
+                            let reply = match ctx.get_mut(&req.$hash_by) {
+                                Ok(i) => i.$mutable_method(req),
+                                Err(err) => Err(err),
+                            };
+                            resp_tx.send(reply).unwrap();
+                        }
+                    )*
+                    $(
+                        DispatchRequest::[<$readonly_method:camel>](req, resp_tx) => {
+                            let reply = match ctx.get(&req.$hash_by) {
+                                Ok(i) => i.$readonly_method(req),
+                                Err(err) => Err(err),
+                            };
                             resp_tx.send(reply).unwrap();
                         }
                     )*
@@ -89,23 +158,28 @@ macro_rules! dispatch_service_sync {
         // Dispatch the request to backend, and wait for the reply.
         #[tonic::async_trait]
         impl $service for [<$service DispatchServer>] {
-            $(
-                async fn $method(
+             $(
+                async fn $shard_method(
                     &self,
-                    request: tonic::Request<$request>,
-                ) -> Result<tonic::Response<$reply>, tonic::Status> {
-                    let request = request.into_inner();
-
-                    let shard = Self::calc_hash(&request.$hash_by) as usize % self.txs.len();
-
-                    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-
-                    let biz_req = DispatchRequest::[<$method:camel>](request, resp_tx);
-
-                    match self.txs[shard].try_send(biz_req) {
-                        Ok(()) => resp_rx.await.unwrap().map(tonic::Response::new),
-                        Err(_) => Err(tonic::Status::unavailable(String::new())),
-                    }
+                    request: tonic::Request<$shard_request>,
+                ) -> Result<tonic::Response<$shard_reply>, tonic::Status> {
+                    tonic_server_dispatch::service_method_body!($shard_method, self, request, $hash_by)
+                }
+             )*
+             $(
+                async fn $mutable_method(
+                    &self,
+                    request: tonic::Request<$mutable_request>,
+                ) -> Result<tonic::Response<$mutable_reply>, tonic::Status> {
+                    tonic_server_dispatch::service_method_body!($mutable_method, self, request, $hash_by)
+                }
+            )*
+            $(
+                async fn $readonly_method(
+                    &self,
+                    request: tonic::Request<$readonly_request>,
+                ) -> Result<tonic::Response<$readonly_reply>, tonic::Status> {
+                    tonic_server_dispatch::service_method_body!($readonly_method, self, request, $hash_by)
                 }
             )*
         }
@@ -117,10 +191,10 @@ macro_rules! dispatch_service_sync {
         #[allow(dead_code)]
         fn start_simple_dispatch_backend<B>(backend: B, task_num: usize, channel_capacity: usize)
             -> [<$service DispatchServer>]
-            where B: Clone + DispatchBackend + Send + Sync + 'static
+            where B: Clone + DispatchBackendShard + Send + Sync + 'static
         {
             fn backend_task<B>(mut backend: B, mut req_rx: std::sync::mpsc::Receiver<DispatchRequest>)
-                where B: DispatchBackend + Send + Sync + 'static
+                where B: DispatchBackendShard + Send + Sync + 'static
             {
                 while let Ok(request) = req_rx.recv() {
                     request.handle_and_reply(&mut backend);
