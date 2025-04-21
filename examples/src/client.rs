@@ -19,13 +19,13 @@ fn show_response<T>(r: Result<Response<T>, Status>)
 async fn main() {
     let mut client = dict_service_client::DictServiceClient::connect("http://127.0.0.1:50051").await.unwrap();
 
-    // get
+    // query
     let request = Request::new(Key {
         key: String::from("pi"),
     });
-    println!(">>> GET {:?}", request.get_ref());
+    println!(">>> QUERY {:?}", request.get_ref());
 
-    let response = client.get(request).await;
+    let response = client.query(request).await;
     show_response(response);
 
     // set
@@ -38,13 +38,22 @@ async fn main() {
     let response = client.set(request).await;
     show_response(response);
 
-    // get
+    // query
     let request = Request::new(Key {
         key: String::from("pi"),
     });
-    println!(">>> GET {:?}", request.get_ref());
+    println!(">>> QUERY {:?}", request.get_ref());
 
-    let response = client.get(request).await;
+    let response = client.query(request).await;
+    show_response(response);
+
+    // sqrt
+    let request = Request::new(Key {
+        key: String::from("pi"),
+    });
+    println!(">>> SQRT {:?}", request.get_ref());
+
+    let response = client.sqrt(request).await;
     show_response(response);
 
     // delete
