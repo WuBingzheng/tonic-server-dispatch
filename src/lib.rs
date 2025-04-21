@@ -147,8 +147,7 @@
 //! [doc page]: macro.dispatch_service.html
 
 
-#[macro_use]
 mod sync;
-
-#[macro_use]
 mod r#async;
+
+mod common;

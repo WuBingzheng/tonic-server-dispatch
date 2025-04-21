@@ -44,39 +44,80 @@
 macro_rules! dispatch_service_async {
     (
         $service:ty,
-        $hash_by:ident,
-        $(
-            $method:ident ($request:ty) -> $reply:ty,
-        )*
+        $hash_by:ident : $hash_type:ty,
+
+        [ $(
+            $shard_method:ident ($shard_request:ty) -> $shard_reply:ty,
+        )* ],
+
+        [ $(
+            $mutable_method:ident ($mutable_request:ty) -> $mutable_reply:ty,
+        )* ],
+
+        [ $(
+            $readonly_method:ident ($readonly_request:ty) -> $readonly_reply:ty,
+        )* ]
     ) => {
+
+        // define tonic Server: [<$service DispatchServer>]
+        //
+        // this part is same for sync and async modes.
+        tonic_server_dispatch::_define_dispatch_server!(
+            $service,
+            $hash_by: $hash_type,
+
+            tokio::sync::mpsc::Sender,
+
+            [ $(
+                $shard_method ($shard_request) -> $shard_reply,
+            )* ],
+
+            [ $(
+                $mutable_method ($mutable_request) -> $mutable_reply,
+            )* ],
+
+            [ $(
+                $readonly_method ($readonly_request) -> $readonly_reply,
+            )* ]
+        );
 
         paste::paste! {
 
-        // Trait for backend business context.
+        // 2 traits for backend business context: Shard and Item.
         //
-        // This defines all gRPC methods for this server.
+        // DispatchBackendShard is for each backend shard. It has 2 parts:
+        // 1. associated type Item, and get_item/get_item_mut methods;
+        // 2. gRPC methods that works at shard (but not item), e.g. create/delete.
         //
-        // The formats of methods are similar to the original tonic ones,
+        // DispatchBackendItem is for each backend item. It only has
+        // gRPC methods that works at item.
+        //
+        // The formats of all methods are similar to the original tonic ones,
         // except that changes
         //   - self: from `&self` to `mut &self`
         //   - parameter: from `Request<R>` to `R`
         //   - retuen value: from `Response<R>` to `R`
-        //
-        // For example:
-        //
         // ```
-        // impl DispatchBackend for MyGreeter {
-        //     async fn say_hello(&mut self, req: SayHelloRequest) -> Result<SayHelloReply, Status> {
-        //         Ok(SayHelloReply{
-        //             say: "hello".into(),
-        //         })
-        //     }
-        // }
-        // ```
-        trait DispatchBackend {
+        trait DispatchBackendShard {
+            // part-1
+            type Item: DispatchBackendItem + Send + Sync;
+            fn get_item(&self, key: &$hash_type) -> Result<&Self::Item, Status>;
+            fn get_item_mut(&mut self, key: &$hash_type) -> Result<&mut Self::Item, Status>;
+
+            // part-2
             $(
-                fn $method(&mut self, request: $request)
-                -> impl std::future::Future<Output = Result<$reply, tonic::Status>> + Send;
+                fn $shard_method(&mut self, request: $shard_request)
+                -> impl std::future::Future<Output = Result<$shard_reply, tonic::Status>> + Send;
+            )*
+        }
+        trait DispatchBackendItem {
+            $(
+                fn $mutable_method(&mut self, request: $mutable_request)
+                -> impl std::future::Future<Output = Result<$mutable_reply, tonic::Status>> + Send;
+            )*
+            $(
+                fn $readonly_method(&self, request: $readonly_request)
+                -> impl std::future::Future<Output = Result<$readonly_reply, tonic::Status>> + Send;
             )*
         }
 
@@ -85,69 +126,47 @@ macro_rules! dispatch_service_async {
         // This is an internal type. You would not need to know this.
         enum DispatchRequest {
             $(
-                [<$method:camel>] ($request, tokio::sync::oneshot::Sender<Result<$reply, tonic::Status>>),
+                [<$shard_method:camel>] ($shard_request, tokio::sync::oneshot::Sender<Result<$shard_reply, tonic::Status>>),
+            )*
+            $(
+                [<$mutable_method:camel>] ($mutable_request, tokio::sync::oneshot::Sender<Result<$mutable_reply, tonic::Status>>),
+            )*
+            $(
+                [<$readonly_method:camel>] ($readonly_request, tokio::sync::oneshot::Sender<Result<$readonly_reply, tonic::Status>>),
             )*
         }
 
         impl DispatchRequest {
             async fn handle_and_reply<B>(self, ctx: &mut B)
-                where B: DispatchBackend + Send + Sync + 'static
+                where B: DispatchBackendShard + Send + Sync + 'static
             {
                 match self {
                     $(
-                        DispatchRequest::[<$method:camel>](req, resp_tx) => {
-                            let reply = ctx.$method(req).await;
+                        DispatchRequest::[<$shard_method:camel>](req, resp_tx) => {
+                            let reply = ctx.$shard_method(req).await;
+                            resp_tx.send(reply).unwrap();
+                        }
+                    )*
+                    $(
+                        DispatchRequest::[<$mutable_method:camel>](req, resp_tx) => {
+                            let reply = match ctx.get_item_mut(&req.$hash_by) {
+                                Ok(i) => i.$mutable_method(req).await,
+                                Err(err) => Err(err),
+                            };
+                            resp_tx.send(reply).unwrap();
+                        }
+                    )*
+                    $(
+                        DispatchRequest::[<$readonly_method:camel>](req, resp_tx) => {
+                            let reply = match ctx.get_item(&req.$hash_by) {
+                                Ok(i) => i.$readonly_method(req).await,
+                                Err(err) => Err(err),
+                            };
                             resp_tx.send(reply).unwrap();
                         }
                     )*
                 }
             }
-        }
-
-        // Context for the tonic server, used to dispatch requests.
-        pub struct [<$service DispatchServer>] {
-            txs: Vec<tokio::sync::mpsc::Sender<DispatchRequest>>,
-        }
-
-        impl [<$service DispatchServer>] {
-            // create with txs
-            fn with_txs(txs: Vec<tokio::sync::mpsc::Sender<DispatchRequest>>) -> Self {
-                Self { txs }
-            }
-
-            // internal method
-            fn calc_hash(item: &impl std::hash::Hash) -> u64 {
-                use std::hash::Hasher;
-                let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                item.hash(&mut hasher);
-                hasher.finish()
-            }
-        }
-
-        // The tonic server implementation.
-        //
-        // Dispatch the request to backend, and wait for the reply.
-        #[tonic::async_trait]
-        impl $service for [<$service DispatchServer>] {
-            $(
-                async fn $method(
-                    &self,
-                    request: tonic::Request<$request>,
-                ) -> Result<tonic::Response<$reply>, tonic::Status> {
-                    let request = request.into_inner();
-
-                    let shard = Self::calc_hash(&request.$hash_by) as usize % self.txs.len();
-
-                    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-
-                    let biz_req = DispatchRequest::[<$method:camel>](request, resp_tx);
-
-                    match self.txs[shard].try_send(biz_req) {
-                        Ok(()) => resp_rx.await.unwrap().map(tonic::Response::new),
-                        Err(_) => Err(tonic::Status::unavailable(String::new())),
-                    }
-                }
-            )*
         }
 
         // Start a simple backend service.
@@ -157,10 +176,10 @@ macro_rules! dispatch_service_async {
         #[allow(dead_code)]
         fn start_simple_dispatch_backend<B>(backend: B, task_num: usize, channel_capacity: usize)
             -> [<$service DispatchServer>]
-            where B: Clone + DispatchBackend + Send + Sync + 'static
+            where B: Clone + DispatchBackendShard + Send + Sync + 'static
         {
             async fn backend_task<B>(mut backend: B, mut req_rx: tokio::sync::mpsc::Receiver<DispatchRequest>)
-                where B: DispatchBackend + Send + Sync + 'static
+                where B: DispatchBackendShard + Send + Sync + 'static
             {
                 while let Some(request) = req_rx.recv().await {
                     request.handle_and_reply(&mut backend).await;
