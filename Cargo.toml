@@ -1,6 +1,6 @@
 [package]
 name = "tonic-server-dispatch"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 authors = ["Wu Bingzheng <wubingzheng@gmail.com>"]
 description = "A request-dispatch level for tonic-Server."
