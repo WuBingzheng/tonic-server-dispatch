@@ -1,4 +1,14 @@
 /// Similar to the `dispatch_service_async` but in sync mode.
+///
+/// See [the module-level documentation](super) for more information
+/// about the 2 modes.
+///
+/// The only API difference is that the methods in `DispatchBackendShard`
+/// and `DispatchBackendItem` are sync but not `async fn`.
+///
+/// And there is also a sync mode [DictService] example.
+///
+/// [DictService]: https://github.com/WuBingzheng/tonic-server-dispatch/blob/master/examples/src/server_sync.rs
 #[macro_export]
 macro_rules! dispatch_service_sync {
     (

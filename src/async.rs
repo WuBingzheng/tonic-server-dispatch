@@ -1,32 +1,55 @@
 /// Define the service and build the mapping relationship between tonic
-/// network tasks and your business tasks.
+/// network tasks and your asynchronous business tasks.
+///
+/// Use `dispatch_service_sync!` instead for synchronous mode.
+/// See [the module-level documentation](super) for more information
+/// about the 2 modes.
 ///
 /// Parameters:
 ///
 /// - `$service` Original service name. Because we need to generate new
 ///   service name based on this name, so do not give the module prefix.
 ///
-/// - `$hash_by` The field in request types which is used to calculate
-///   which business task to dispatched to. All request types should
-///   contain this field.
+/// - `$hash_by: $hash_type` The field in request types which is used
+///   to calculate which business task to dispatched to. All request
+///   types should contain this field.
 ///
-/// - `$method` The gRPC method name. You need list all methods.
+/// - `$shard_method ($shard_request) -> $shard_reply` gRPC methods that work
+///   on shard (but not on item). E.g. create or remove items on the shard.
 ///
-/// - `$request` The gRPC request type.
+/// - `$mutable_method ($mutable_request) -> $mutable_reply` gRPC mutable
+///   methods that work on item. E.g. update item itself.
 ///
-/// - `$reply` The gRPC response type.
+/// - `$readonly_method ($readonly_request) -> $readonly_reply` gRPC
+///   readonly methods that work on item. E.g. query item itself.
 ///
 ///
-/// This macro defines 3 items:
+/// This macro defines 4 items:
 ///
-/// - `trait DispatchBackend` This defines all your service's gRPC
-///   methods, and you need to implement this trait for your service
-///   context.
+/// - `trait DispatchBackendShard` is for each backend shard. You
+///   need to implement this trait for your shard context. It has 2 parts:
+///    1. associated type Item, and get_item/get_item_mut methods;
+///    2. gRPC methods that works at shard (but not item), e.g. create/delete.
+///
+/// - `trait DispatchBackendItem` is for each backend item. It has
+///   mutable and readonly gRPC methods that works at item. You
+///   need to implement this trait for your item.
+///
+///   The formats of all methods are similar to the original tonic ones,
+///   except that changes
+///     - self: from `&self` to `&mut self`
+///     - parameter: from `Request<R>` to `R`
+///     - retuen value: from `Response<R>` to `R`
+///
+///   However the meaning of `self` changes. For the original tonic methods,
+///   the `self` points to a global service context. While here, for shard
+///   methods the `self` points to a context for each shard, and for
+///   item mutable/readonly methods the `self` points to the item.
 ///
 /// - `fn start_simple_dispatch_backend` This starts a simple kind of
 ///   backend tasks, which just listen on the request channel.
-///    If you want more complex backend task (e.g. listen on another
-///    channel too), you have to create tasks and channels youself.
+///   If you want more complex backend task (e.g. listen on another
+///   channel too), you have to create tasks and channels youself.
 ///
 /// - `struct [<$service DispatchServer>]` This defines the real tonic
 ///   service, and this macro implement it automatically. If you use
