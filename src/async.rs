@@ -14,14 +14,19 @@
 ///   to calculate which business task to dispatched to. All request
 ///   types should contain this field.
 ///
-/// - `$shard_method ($shard_request) -> $shard_reply` gRPC methods that work
-///   on shard (but not on item). E.g. create or remove items on the shard.
+/// - `$shard_mutable_method ($shard_mutable_request) -> $shard_mutable_reply`
+///   gRPC methods that work on mutable shard (but not on item). E.g. create
+///   or remove items on the shard.
 ///
-/// - `$mutable_method ($mutable_request) -> $mutable_reply` gRPC mutable
-///   methods that work on item. E.g. update item itself.
+/// - `$shard_readonly_method ($shard_readonly_request) -> $shard_readonly_reply`
+///   gRPC methods that work on readonly shard (but not on item). E.g. list
+///   items on the shard.
 ///
-/// - `$readonly_method ($readonly_request) -> $readonly_reply` gRPC
-///   readonly methods that work on item. E.g. query item itself.
+/// - `$item_mutable_method ($item_mutable_request) -> $item_mutable_reply`
+///   gRPC mutable methods that work on item. E.g. update item itself.
+///
+/// - `$item_readonly_method ($item_readonly_request) -> $item_readonly_reply`
+///   gRPC readonly methods that work on item. E.g. query item itself.
 ///
 ///
 /// This macro defines 4 items:
@@ -37,7 +42,7 @@
 ///
 ///   The formats of all methods are similar to the original tonic ones,
 ///   except that changes
-///     - self: from `&self` to `&mut self`
+///     - self: from `&self` to `&mut self` (for mutable methods)
 ///     - parameter: from `Request<R>` to `R`
 ///     - retuen value: from `Response<R>` to `R`
 ///
@@ -70,15 +75,19 @@ macro_rules! dispatch_service_async {
         $hash_by:ident : $hash_type:ty,
 
         [ $(
-            $shard_method:ident ($shard_request:ty) -> $shard_reply:ty,
+            $shard_mutable_method:ident ($shard_mutable_request:ty) -> $shard_mutable_reply:ty,
         )* ],
 
         [ $(
-            $mutable_method:ident ($mutable_request:ty) -> $mutable_reply:ty,
+            $shard_readonly_method:ident ($shard_readonly_request:ty) -> $shard_readonly_reply:ty,
         )* ],
 
         [ $(
-            $readonly_method:ident ($readonly_request:ty) -> $readonly_reply:ty,
+            $item_mutable_method:ident ($item_mutable_request:ty) -> $item_mutable_reply:ty,
+        )* ],
+
+        [ $(
+            $item_readonly_method:ident ($item_readonly_request:ty) -> $item_readonly_reply:ty,
         )* ]
     ) => {
 
@@ -92,15 +101,19 @@ macro_rules! dispatch_service_async {
             tokio::sync::mpsc::Sender,
 
             [ $(
-                $shard_method ($shard_request) -> $shard_reply,
+                $shard_mutable_method ($shard_mutable_request) -> $shard_mutable_reply,
             )* ],
 
             [ $(
-                $mutable_method ($mutable_request) -> $mutable_reply,
+                $shard_readonly_method ($shard_readonly_request) -> $shard_readonly_reply,
             )* ],
 
             [ $(
-                $readonly_method ($readonly_request) -> $readonly_reply,
+                $item_mutable_method ($item_mutable_request) -> $item_mutable_reply,
+            )* ],
+
+            [ $(
+                $item_readonly_method ($item_readonly_request) -> $item_readonly_reply,
             )* ]
         );
 
@@ -110,14 +123,14 @@ macro_rules! dispatch_service_async {
         //
         // DispatchBackendShard is for each backend shard. It has 2 parts:
         // 1. associated type Item, and get_item/get_item_mut methods;
-        // 2. gRPC methods that works at shard (but not item), e.g. create/delete.
+        // 2. gRPC methods that works at shard (but not item), e.g. create/delete/list.
         //
         // DispatchBackendItem is for each backend item. It only has
         // gRPC methods that works at item.
         //
         // The formats of all methods are similar to the original tonic ones,
         // except that changes
-        //   - self: from `&self` to `mut &self`
+        //   - self: from `&self` to `mut &self` (mutable methods)
         //   - parameter: from `Request<R>` to `R`
         //   - retuen value: from `Response<R>` to `R`
         // ```
@@ -129,18 +142,22 @@ macro_rules! dispatch_service_async {
 
             // part-2
             $(
-                fn $shard_method(&mut self, request: $shard_request)
-                -> impl std::future::Future<Output = Result<$shard_reply, tonic::Status>> + Send;
+                fn $shard_mutable_method(&mut self, request: $shard_mutable_request)
+                -> impl std::future::Future<Output = Result<$shard_mutable_reply, tonic::Status>> + Send;
+            )*
+            $(
+                fn $shard_readonly_method(&self, request: $shard_readonly_request)
+                -> impl std::future::Future<Output = Result<$shard_readonly_reply, tonic::Status>> + Send;
             )*
         }
         trait DispatchBackendItem {
             $(
-                fn $mutable_method(&mut self, request: $mutable_request)
-                -> impl std::future::Future<Output = Result<$mutable_reply, tonic::Status>> + Send;
+                fn $item_mutable_method(&mut self, request: $item_mutable_request)
+                -> impl std::future::Future<Output = Result<$item_mutable_reply, tonic::Status>> + Send;
             )*
             $(
-                fn $readonly_method(&self, request: $readonly_request)
-                -> impl std::future::Future<Output = Result<$readonly_reply, tonic::Status>> + Send;
+                fn $item_readonly_method(&self, request: $item_readonly_request)
+                -> impl std::future::Future<Output = Result<$item_readonly_reply, tonic::Status>> + Send;
             )*
         }
 
@@ -149,13 +166,16 @@ macro_rules! dispatch_service_async {
         // This is an internal type. You would not need to know this.
         enum DispatchRequest {
             $(
-                [<$shard_method:camel>] ($shard_request, tokio::sync::oneshot::Sender<Result<$shard_reply, tonic::Status>>),
+                [<$shard_mutable_method:camel>] ($shard_mutable_request, tokio::sync::oneshot::Sender<Result<$shard_mutable_reply, tonic::Status>>),
             )*
             $(
-                [<$mutable_method:camel>] ($mutable_request, tokio::sync::oneshot::Sender<Result<$mutable_reply, tonic::Status>>),
+                [<$shard_readonly_method:camel>] ($shard_readonly_request, tokio::sync::oneshot::Sender<Result<$shard_readonly_reply, tonic::Status>>),
             )*
             $(
-                [<$readonly_method:camel>] ($readonly_request, tokio::sync::oneshot::Sender<Result<$readonly_reply, tonic::Status>>),
+                [<$item_mutable_method:camel>] ($item_mutable_request, tokio::sync::oneshot::Sender<Result<$item_mutable_reply, tonic::Status>>),
+            )*
+            $(
+                [<$item_readonly_method:camel>] ($item_readonly_request, tokio::sync::oneshot::Sender<Result<$item_readonly_reply, tonic::Status>>),
             )*
         }
 
@@ -165,24 +185,30 @@ macro_rules! dispatch_service_async {
             {
                 match self {
                     $(
-                        DispatchRequest::[<$shard_method:camel>](req, resp_tx) => {
-                            let reply = ctx.$shard_method(req).await;
+                        DispatchRequest::[<$shard_mutable_method:camel>](req, resp_tx) => {
+                            let reply = ctx.$shard_mutable_method(req).await;
                             resp_tx.send(reply).unwrap();
                         }
                     )*
                     $(
-                        DispatchRequest::[<$mutable_method:camel>](req, resp_tx) => {
+                        DispatchRequest::[<$shard_readonly_method:camel>](req, resp_tx) => {
+                            let reply = ctx.$shard_readonly_method(req).await;
+                            resp_tx.send(reply).unwrap();
+                        }
+                    )*
+                    $(
+                        DispatchRequest::[<$item_mutable_method:camel>](req, resp_tx) => {
                             let reply = match ctx.get_item_mut(&req.$hash_by) {
-                                Ok(i) => i.$mutable_method(req).await,
+                                Ok(i) => i.$item_mutable_method(req).await,
                                 Err(err) => Err(err),
                             };
                             resp_tx.send(reply).unwrap();
                         }
                     )*
                     $(
-                        DispatchRequest::[<$readonly_method:camel>](req, resp_tx) => {
+                        DispatchRequest::[<$item_readonly_method:camel>](req, resp_tx) => {
                             let reply = match ctx.get_item(&req.$hash_by) {
-                                Ok(i) => i.$readonly_method(req).await,
+                                Ok(i) => i.$item_readonly_method(req).await,
                                 Err(err) => Err(err),
                             };
                             resp_tx.send(reply).unwrap();

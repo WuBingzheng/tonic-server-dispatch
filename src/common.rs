@@ -12,15 +12,19 @@ macro_rules! _define_dispatch_server {
         $mpsc_sender_type:ty,
 
         [ $(
-            $shard_method:ident ($shard_request:ty) -> $shard_reply:ty,
+            $shard_mutable_method:ident ($shard_mutable_request:ty) -> $shard_mutable_reply:ty,
         )* ],
 
         [ $(
-            $mutable_method:ident ($mutable_request:ty) -> $mutable_reply:ty,
+            $shard_readonly_method:ident ($shard_readonly_request:ty) -> $shard_readonly_reply:ty,
         )* ],
 
         [ $(
-            $readonly_method:ident ($readonly_request:ty) -> $readonly_reply:ty,
+            $item_mutable_method:ident ($item_mutable_request:ty) -> $item_mutable_reply:ty,
+        )* ],
+
+        [ $(
+            $item_readonly_method:ident ($item_readonly_request:ty) -> $item_readonly_reply:ty,
         )* ]
     ) => {
 
@@ -44,27 +48,35 @@ macro_rules! _define_dispatch_server {
         #[tonic::async_trait]
         impl $service for [<$service DispatchServer>] {
              $(
-                async fn $shard_method(
+                async fn $shard_mutable_method(
                     &self,
-                    request: tonic::Request<$shard_request>,
-                ) -> Result<tonic::Response<$shard_reply>, tonic::Status> {
-                    tonic_server_dispatch::_service_method_body!($shard_method, self, request, $hash_by)
+                    request: tonic::Request<$shard_mutable_request>,
+                ) -> Result<tonic::Response<$shard_mutable_reply>, tonic::Status> {
+                    tonic_server_dispatch::_service_method_body!($shard_mutable_method, self, request, $hash_by)
                 }
              )*
              $(
-                async fn $mutable_method(
+                async fn $shard_readonly_method(
                     &self,
-                    request: tonic::Request<$mutable_request>,
-                ) -> Result<tonic::Response<$mutable_reply>, tonic::Status> {
-                    tonic_server_dispatch::_service_method_body!($mutable_method, self, request, $hash_by)
+                    request: tonic::Request<$shard_readonly_request>,
+                ) -> Result<tonic::Response<$shard_readonly_reply>, tonic::Status> {
+                    tonic_server_dispatch::_service_method_body!($shard_readonly_method, self, request, $hash_by)
+                }
+             )*
+             $(
+                async fn $item_mutable_method(
+                    &self,
+                    request: tonic::Request<$item_mutable_request>,
+                ) -> Result<tonic::Response<$item_mutable_reply>, tonic::Status> {
+                    tonic_server_dispatch::_service_method_body!($item_mutable_method, self, request, $hash_by)
                 }
             )*
             $(
-                async fn $readonly_method(
+                async fn $item_readonly_method(
                     &self,
-                    request: tonic::Request<$readonly_request>,
-                ) -> Result<tonic::Response<$readonly_reply>, tonic::Status> {
-                    tonic_server_dispatch::_service_method_body!($readonly_method, self, request, $hash_by)
+                    request: tonic::Request<$item_readonly_request>,
+                ) -> Result<tonic::Response<$item_readonly_reply>, tonic::Status> {
+                    tonic_server_dispatch::_service_method_body!($item_readonly_method, self, request, $hash_by)
                 }
             )*
         }
@@ -104,5 +116,5 @@ macro_rules! _service_method_body {
                 }
             }
         }
-    }
+    };
 }

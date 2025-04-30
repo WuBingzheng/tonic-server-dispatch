@@ -8,7 +8,6 @@ use dict_example::*;
 
 use dict_service_server::{DictService, DictServiceServer};
 
-
 // STEP 1: Define the Service
 //
 // This builds the mapping relationship between tonic
@@ -17,17 +16,21 @@ tonic_server_dispatch::dispatch_service_sync! {
     DictService, // original service name
     key: String, // hash by this request field
 
-    [ // shard methods, work on the shard. E.g. create/remove item on the shard.
-        set(SetRequest) -> SetReply,
+    [ // shard mutable methods, work on the shard. E.g. create/remove item on the shard.
+        set(Entry) -> SetReply,
         delete(Key) -> Value,
     ],
 
-    [ // mutable methods, work on mutable item. E.g. update item.
+    [ // shard readonly methods, work on the shard. E.g. list items on the shard.
+        list_shard(ListShardRequest) -> ListShardReply,
+    ],
+
+    [ // item mutable methods, work on mutable item. E.g. update item.
         sqrt(Key) -> Value,
         add(AddRequest) -> Value,
     ],
 
-    [ // readonly methods, work on readonly item. E.g. query item.
+    [ // item readonly methods, work on readonly item. E.g. query item.
         query(Key) -> Value,
     ]
 }
@@ -46,13 +49,11 @@ impl DispatchBackendShard for DictCtx {
         self.0.get(key).ok_or(Status::not_found(String::new()))
     }
     fn get_item_mut(&mut self, key: &String) -> Result<&mut f64, Status> {
-        self.0
-            .get_mut(key)
-            .ok_or(Status::not_found(String::new()))
+        self.0.get_mut(key).ok_or(Status::not_found(String::new()))
     }
 
-    // part-2: shard methods. The `self` here points to each shard.
-    fn set(&mut self, req: SetRequest) -> Result<SetReply, Status> {
+    // part-2: shard mutable methods. The `self` here points to each shard.
+    fn set(&mut self, req: Entry) -> Result<SetReply, Status> {
         match self.0.insert(req.key, req.value) {
             Some(old_value) => Ok(SetReply {
                 old_value: Some(old_value),
@@ -66,11 +67,24 @@ impl DispatchBackendShard for DictCtx {
             None => Err(Status::not_found(String::new())),
         }
     }
+
+    // shard readonly methods
+    fn list_shard(&self, _req: ListShardRequest) -> Result<ListShardReply, Status> {
+        let entries = self
+            .0
+            .iter()
+            .map(|(key, value)| Entry {
+                key: key.clone(),
+                value: *value,
+            })
+            .collect();
+        Ok(ListShardReply { entries })
+    }
 }
 
 // 2.3 implement DispatchBackendItem for your item
 impl DispatchBackendItem for f64 {
-    // mutable methods. The `self` here points to each item.
+    // item mutable methods. The `self` here points to each item.
     fn sqrt(&mut self, _req: Key) -> Result<Value, Status> {
         *self *= *self;
         Ok(Value { value: *self })
@@ -80,7 +94,7 @@ impl DispatchBackendItem for f64 {
         Ok(Value { value: *self })
     }
 
-    // readonly methods. The `self` here points to each item.
+    // item readonly methods. The `self` here points to each item.
     fn query(&self, _req: Key) -> Result<Value, Status> {
         Ok(Value { value: *self })
     }
@@ -106,7 +120,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "127.0.0.1:50051".parse()?;
     Server::builder()
         .add_service(DictServiceServer::new(svc))
-        .serve(addr).await?;
+        .serve(addr)
+        .await?;
 
     Ok(())
 }

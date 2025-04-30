@@ -7,7 +7,8 @@ pub mod dict_example {
 use dict_example::*;
 
 fn show_response<T>(r: Result<Response<T>, Status>)
-    where T: std::fmt::Debug
+where
+    T: std::fmt::Debug,
 {
     match r {
         Ok(reply) => println!("[GOOD] {:?}\n>>>", reply.get_ref()),
@@ -17,7 +18,9 @@ fn show_response<T>(r: Result<Response<T>, Status>)
 
 #[tokio::main]
 async fn main() {
-    let mut client = dict_service_client::DictServiceClient::connect("http://127.0.0.1:50051").await.unwrap();
+    let mut client = dict_service_client::DictServiceClient::connect("http://127.0.0.1:50051")
+        .await
+        .unwrap();
 
     // query
     let request = Request::new(Key {
@@ -29,7 +32,7 @@ async fn main() {
     show_response(response);
 
     // set
-    let request = Request::new(SetRequest {
+    let request = Request::new(Entry {
         key: String::from("pi"),
         value: 3.145926,
     });
@@ -54,6 +57,15 @@ async fn main() {
     println!(">>> SQRT {:?}", request.get_ref());
 
     let response = client.sqrt(request).await;
+    show_response(response);
+
+    // list_shart
+    let request = Request::new(ListShardRequest {
+        key: String::from("pi"),
+    });
+    println!(">>> LIST-SHARD {:?}", request.get_ref());
+
+    let response = client.list_shard(request).await;
     show_response(response);
 
     // delete

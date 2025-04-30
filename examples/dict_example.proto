@@ -2,15 +2,18 @@ syntax = "proto3";
 package dict_example;
 
 service DictService {
-    // shard methods
-    rpc Set (SetRequest) returns (SetReply); // update or create
+    // shard mutable methods
+    rpc Set (Entry) returns (SetReply); // update or create
     rpc Delete (Key) returns (Value);
 
-    // mutable methods
+    // shard readonly methods
+    rpc ListShard (ListShardRequest) returns (ListShardReply);
+
+    // item mutable methods
     rpc Sqrt (Key) returns (Value);
     rpc Add (AddRequest) returns (Value);
 
-    // readonly methods
+    // item readonly methods
     rpc Query (Key) returns (Value);
 }
 
@@ -20,11 +23,11 @@ message Key {
 message Value {
     double value = 1;
 }
-
-message SetRequest {
+message Entry {
     string key = 1;
     double value = 2;
 }
+
 message SetReply {
     optional double old_value = 2;
 }
@@ -32,4 +35,12 @@ message SetReply {
 message AddRequest {
     string key = 1;
     double value = 2;
+}
+
+message ListShardRequest {
+    string key = 1;
+}
+
+message ListShardReply {
+    repeated Entry entries = 1;
 }
